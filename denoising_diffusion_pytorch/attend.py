@@ -80,15 +80,26 @@ class Attend(nn.Module):
 
         # Check if there is a compatible device for flash attention
 
-        config = self.cuda_config if is_cuda else self.cpu_config
+        # config = self.cuda_config if is_cuda else self.cpu_config
 
         # pytorch 2.0 flash attn: q, k, v, mask, dropout, causal, softmax_scale
 
-        with torch.backends.cuda.sdp_kernel(**config._asdict()):
-            out = F.scaled_dot_product_attention(
-                q, k, v,
-                dropout_p = self.dropout if self.training else 0.
-            )
+        # pad = max(q.size(-2), k.size(-2))
+
+        # q_padding_amount = pad - q.size(-2)
+        # kv_padding_amount = pad - k.size(-2)
+        
+        # q_padded = torch.nn.functional.pad(q, (0, 0, 0, q_padding_amount))
+        # k_padded = torch.nn.functional.pad(k, (0, 0, 0, kv_padding_amount))
+        # v_padded = torch.nn.functional.pad(v, (0, 0, 0, kv_padding_amount))
+
+        # with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
+        out = F.scaled_dot_product_attention(
+            q, k, v,
+            dropout_p = self.dropout if self.training else 0.
+        )
+
+        # out = out_padded[..., :q.size(-2), :]
 
         return out
 
