@@ -667,7 +667,7 @@ class GaussianDiffusion(nn.Module):
         return pred_img, x_start
 
     @torch.inference_mode()
-    def p_sample_loop(self, shape, return_all_timesteps = False):
+    def p_sample_loop(self, shape, return_all_timesteps = False, self_cond = None):
         batch, device = shape[0], self.device
 
         img = torch.randn(shape, device = device)
@@ -676,7 +676,7 @@ class GaussianDiffusion(nn.Module):
         x_start = None
 
         for t in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
-            self_cond = x_start if self.self_condition else None
+            # self_cond = x_start if self.self_condition else None
             img, x_start = self.p_sample(img, t, self_cond)
             imgs.append(img)
 
@@ -686,7 +686,7 @@ class GaussianDiffusion(nn.Module):
         return ret
 
     @torch.inference_mode()
-    def ddim_sample(self, shape, return_all_timesteps = False):
+    def ddim_sample(self, shape, return_all_timesteps = False, self_cond = None):
         batch, device, total_timesteps, sampling_timesteps, eta, objective = shape[0], self.device, self.num_timesteps, self.sampling_timesteps, self.ddim_sampling_eta, self.objective
 
         times = torch.linspace(-1, total_timesteps - 1, steps = sampling_timesteps + 1)   # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
@@ -698,9 +698,10 @@ class GaussianDiffusion(nn.Module):
 
         x_start = None
 
-        for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
+        # for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
+        for time, time_next in time_pairs:
             time_cond = torch.full((batch,), time, device = device, dtype = torch.long)
-            self_cond = x_start if self.self_condition else None
+            # self_cond = x_start if self.self_condition else None
             pred_noise, x_start, *_ = self.model_predictions(img, time_cond, self_cond, clip_x_start = True, rederive_pred_noise = True)
 
             if time_next < 0:
@@ -728,10 +729,10 @@ class GaussianDiffusion(nn.Module):
         return ret
 
     @torch.inference_mode()
-    def sample(self, batch_size = 16, return_all_timesteps = False):
+    def sample(self, batch_size = 16, return_all_timesteps = False, x_cond = None):
         image_size, channels = self.image_size, self.channels
         sample_fn = self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
-        return sample_fn((batch_size, channels, image_size, image_size), return_all_timesteps = return_all_timesteps)
+        return sample_fn((batch_size, channels, image_size, image_size), return_all_timesteps = return_all_timesteps, self_cond=x_cond)
 
     @torch.inference_mode()
     def interpolate(self, x1, x2, t = None, lam = 0.5):
@@ -762,7 +763,7 @@ class GaussianDiffusion(nn.Module):
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
 
-    def p_losses(self, x_start, t, noise = None, offset_noise_strength = None):
+    def p_losses(self, x_start, t, noise = None, offset_noise_strength = None, x_cond = None):
         b, c, h, w = x_start.shape
 
         noise = default(noise, lambda: torch.randn_like(x_start))
@@ -783,15 +784,15 @@ class GaussianDiffusion(nn.Module):
         # and condition with unet with that
         # this technique will slow down training by 25%, but seems to lower FID significantly
 
-        x_self_cond = None
-        if self.self_condition and random() < 0.5:
-            with torch.inference_mode():
-                x_self_cond = self.model_predictions(x, t).pred_x_start
-                x_self_cond.detach_()
+        # x_self_cond = None
+        # if self.self_condition and random() < 0.5:
+        #     with torch.inference_mode():
+        #         x_self_cond = self.model_predictions(x, t).pred_x_start
+        #         x_self_cond.detach_()
 
         # predict and take gradient step
 
-        model_out = self.model(x, t, x_self_cond)
+        model_out = self.model(x, t, x_cond)
 
         if self.objective == 'pred_noise':
             target = noise
@@ -815,6 +816,8 @@ class GaussianDiffusion(nn.Module):
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
         img = self.normalize(img)
+        if "x_cond" in kwargs:
+            kwargs["x_cond"] = self.normalize(kwargs["x_cond"])
         return self.p_losses(img, t, *args, **kwargs)
 
 # dataset classes
